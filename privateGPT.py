@@ -4,9 +4,21 @@ from langchain.chains import RetrievalQA
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.vectorstores import Chroma
-from langchain.llms import GPT4All, LlamaCpp
+from langchain.llms import GPT4All, LlamaCpp, HuggingFacePipeline
 import os
 import argparse
+from wizardlm_langchain.model import load_quantized_model
+
+import accelerate
+from langchain import LLMChain, PromptTemplate
+from transformers import pipeline
+
+from wizardlm_langchain.helpers import (
+    AttributeDict,
+    convert_to_bytes,
+    get_available_memory,
+)
+from wizardlm_langchain.model import load_quantized_model
 
 load_dotenv()
 
@@ -30,6 +42,8 @@ def main():
     callbacks = [] if args.mute_stream else [StreamingStdOutCallbackHandler()]
     # Prepare the LLM
     match model_type:
+        case "GPTQ":
+            llm = create_gptq_llm_chain(model_path=model_path, n_ctx=model_n_ctx, callbacks=callbacks, verbose=False)
         case "LlamaCpp":
             llm = LlamaCpp(model_path=model_path, n_ctx=model_n_ctx, callbacks=callbacks, verbose=False)
         case "GPT4All":
@@ -74,3 +88,40 @@ def parse_arguments():
 
 if __name__ == "__main__":
     main()
+
+
+def create_gptq_llm_chain(model_dir: str, model_name: str, cpu_mem_buffer):
+    args = {
+        "wbits": 4,
+        "groupsize": 128,
+        "model_type": "llama",
+        "model_dir": model_dir,
+    }
+
+    model, tokenizer = load_quantized_model(model_name, args=AttributeDict(args))
+    cpu_mem, gpu_mem_map = get_available_memory(cpu_mem_buffer)
+    print(f"Detected Memory: System={cpu_mem}, GPU(s)={gpu_mem_map}")
+
+    max_memory = {**gpu_mem_map, "cpu": cpu_mem}
+
+    device_map = accelerate.infer_auto_device_map(
+        model, max_memory=max_memory, no_split_module_classes=["LlamaDecoderLayer"]
+    )
+
+    model = accelerate.dispatch_model(
+        model, device_map=device_map, offload_buffers=True
+    )
+
+    print(f"Memory footprint of model: {model.get_memory_footprint() / (1024 * 1024)}")
+
+    llm_pipeline = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_length=512,
+        device_map=device_map,
+    )
+
+    local_llm = HuggingFacePipeline(pipeline=llm_pipeline)
+
+    return local_llm
