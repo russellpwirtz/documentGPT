@@ -81,7 +81,7 @@ def main():
     # Prepare the LLM
     match model_type:
         case "GPTQ":
-            llm = create_gptq_llm_chain(model_path=model_path, model_name=model_name, n_ctx=model_n_ctx)
+            llm = create_gptq_llm_chain(model_path=model_path, model_name=model_name)
         case "LlamaCpp":
             llm = LlamaCpp(model_path=model_path, n_ctx=model_n_ctx, callbacks=callbacks, verbose=False)
         case "GPT4All":
