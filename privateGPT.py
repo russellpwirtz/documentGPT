@@ -61,7 +61,7 @@ def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: str = "3GiB")
         "text-generation",
         model=model,
         tokenizer=tokenizer,
-        max_length=512,
+        max_length=1024,
         device_map=device_map,
     )
 
