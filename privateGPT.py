@@ -33,7 +33,7 @@ target_source_chunks = int(os.environ.get('TARGET_SOURCE_CHUNKS',4))
 
 from constants import CHROMA_SETTINGS
 
-def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: str = "3GiB"):
+def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: int):
     args = {
         "wbits": 4,
         "groupsize": 128,
@@ -42,7 +42,7 @@ def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: str = "3GiB")
     }
 
     model, tokenizer = load_quantized_model(model_name, args=AttributeDict(args))
-    cpu_mem, gpu_mem_map = get_available_memory(convert_to_bytes(n_ctx)) # TODO: tune
+    cpu_mem, gpu_mem_map = get_available_memory(convert_to_bytes("3GiB")) # TODO: tune
     print(f"Detected Memory: System={cpu_mem}, GPU(s)={gpu_mem_map}")
 
     max_memory = {**gpu_mem_map, "cpu": cpu_mem}
@@ -61,7 +61,7 @@ def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: str = "3GiB")
         "text-generation",
         model=model,
         tokenizer=tokenizer,
-        max_length=1024,
+        max_length=n_ctx,
         device_map=device_map,
     )
 
@@ -81,7 +81,7 @@ def main():
     # Prepare the LLM
     match model_type:
         case "GPTQ":
-            llm = create_gptq_llm_chain(model_path=model_path, model_name=model_name)
+            llm = create_gptq_llm_chain(model_path=model_path, model_name=model_name, n_ctx=model_n_ctx)
         case "LlamaCpp":
             llm = LlamaCpp(model_path=model_path, n_ctx=model_n_ctx, callbacks=callbacks, verbose=False)
         case "GPT4All":
