@@ -12,6 +12,7 @@ from wizardlm_langchain.model import load_quantized_model
 import accelerate
 from langchain import LLMChain, PromptTemplate
 from transformers import pipeline
+from langchain.prompts import PromptTemplate
 
 from wizardlm_langchain.helpers import (
     AttributeDict,
@@ -33,7 +34,7 @@ target_source_chunks = int(os.environ.get('TARGET_SOURCE_CHUNKS',4))
 
 from constants import CHROMA_SETTINGS
 
-def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: int):
+def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: str):
     args = {
         "wbits": 4,
         "groupsize": 128,
@@ -61,7 +62,7 @@ def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: int):
         "text-generation",
         model=model,
         tokenizer=tokenizer,
-        max_length=n_ctx,
+        max_length=int(n_ctx),
         device_map=device_map,
     )
 
@@ -89,7 +90,21 @@ def main():
         case _default:
             print(f"Model {model_type} not supported!")
             exit;
-    qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever, return_source_documents= not args.hide_source)
+    
+    prompt_template = """Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.
+
+    {context}
+
+    Question: {question}
+    Answer in Italian:"""
+    PROMPT = PromptTemplate(
+        template=prompt_template, input_variables=["context", "question"]
+    )
+
+    chain_type_kwargs = {"prompt": PROMPT}
+
+    qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever, chain_type_kwargs=chain_type_kwargs, return_source_documents= not args.hide_source)
+    
     # Interactive questions and answers
     while True:
         query = input("\nEnter a query: ")
