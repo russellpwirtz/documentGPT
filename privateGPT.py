@@ -27,10 +27,48 @@ persist_directory = os.environ.get('PERSIST_DIRECTORY')
 
 model_type = os.environ.get('MODEL_TYPE')
 model_path = os.environ.get('MODEL_PATH')
+model_name = os.environ.get('MODEL_NAME')
 model_n_ctx = os.environ.get('MODEL_N_CTX')
 target_source_chunks = int(os.environ.get('TARGET_SOURCE_CHUNKS',4))
 
 from constants import CHROMA_SETTINGS
+
+def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: str = "3GiB"):
+    args = {
+        "wbits": 4,
+        "groupsize": 128,
+        "model_type": "llama",
+        "model_dir": model_path,
+    }
+
+    model, tokenizer = load_quantized_model(model_name, args=AttributeDict(args))
+    cpu_mem, gpu_mem_map = get_available_memory(n_ctx) # TODO: tune
+    print(f"Detected Memory: System={cpu_mem}, GPU(s)={gpu_mem_map}")
+
+    max_memory = {**gpu_mem_map, "cpu": cpu_mem}
+
+    device_map = accelerate.infer_auto_device_map(
+        model, max_memory=max_memory, no_split_module_classes=["LlamaDecoderLayer"]
+    )
+
+    model = accelerate.dispatch_model(
+        model, device_map=device_map, offload_buffers=True
+    )
+
+    print(f"Memory footprint of model: {model.get_memory_footprint() / (1024 * 1024)}")
+
+    llm_pipeline = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        max_length=512,
+        device_map=device_map,
+    )
+
+    local_llm = HuggingFacePipeline(pipeline=llm_pipeline)
+
+    return local_llm
+
 
 def main():
     # Parse the command line arguments
@@ -43,7 +81,7 @@ def main():
     # Prepare the LLM
     match model_type:
         case "GPTQ":
-            llm = create_gptq_llm_chain(model_path=model_path, n_ctx=model_n_ctx, callbacks=callbacks, verbose=False)
+            llm = create_gptq_llm_chain(model_path=model_path, model_name=model_name, n_ctx=model_n_ctx)
         case "LlamaCpp":
             llm = LlamaCpp(model_path=model_path, n_ctx=model_n_ctx, callbacks=callbacks, verbose=False)
         case "GPT4All":
@@ -88,40 +126,3 @@ def parse_arguments():
 
 if __name__ == "__main__":
     main()
-
-
-def create_gptq_llm_chain(model_dir: str, model_name: str, cpu_mem_buffer):
-    args = {
-        "wbits": 4,
-        "groupsize": 128,
-        "model_type": "llama",
-        "model_dir": model_dir,
-    }
-
-    model, tokenizer = load_quantized_model(model_name, args=AttributeDict(args))
-    cpu_mem, gpu_mem_map = get_available_memory(cpu_mem_buffer)
-    print(f"Detected Memory: System={cpu_mem}, GPU(s)={gpu_mem_map}")
-
-    max_memory = {**gpu_mem_map, "cpu": cpu_mem}
-
-    device_map = accelerate.infer_auto_device_map(
-        model, max_memory=max_memory, no_split_module_classes=["LlamaDecoderLayer"]
-    )
-
-    model = accelerate.dispatch_model(
-        model, device_map=device_map, offload_buffers=True
-    )
-
-    print(f"Memory footprint of model: {model.get_memory_footprint() / (1024 * 1024)}")
-
-    llm_pipeline = pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        max_length=512,
-        device_map=device_map,
-    )
-
-    local_llm = HuggingFacePipeline(pipeline=llm_pipeline)
-
-    return local_llm
