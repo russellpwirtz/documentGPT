@@ -42,7 +42,7 @@ def create_gptq_llm_chain(model_path: str, model_name: str, n_ctx: str = "3GiB")
     }
 
     model, tokenizer = load_quantized_model(model_name, args=AttributeDict(args))
-    cpu_mem, gpu_mem_map = get_available_memory(n_ctx) # TODO: tune
+    cpu_mem, gpu_mem_map = get_available_memory(convert_to_bytes(n_ctx)) # TODO: tune
     print(f"Detected Memory: System={cpu_mem}, GPU(s)={gpu_mem_map}")
 
     max_memory = {**gpu_mem_map, "cpu": cpu_mem}
