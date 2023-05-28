@@ -10,7 +10,7 @@ import argparse
 from wizardlm_langchain.model import load_quantized_model
 
 import accelerate
-from langchain import LLMChain, PromptTemplate
+from langchain import PromptTemplate
 from transformers import pipeline
 from langchain.prompts import PromptTemplate
 
@@ -120,6 +120,9 @@ def main():
         # Get the answer from the chain
         res = qa(query)
         answer, docs = res['result'], [] if args.hide_source else res['source_documents']
+
+        if "###" in answer:
+            answer = answer.split("###")[0]
 
         # Print the result
         print("\n\n> Question:")
