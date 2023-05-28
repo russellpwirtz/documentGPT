@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from dotenv import load_dotenv
-from langchain.chains import RetrievalQA, ConversationalRetrievalChain
+from langchain.chains import RetrievalQA
 from langchain.embeddings import HuggingFaceEmbeddings
 from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
 from langchain.vectorstores import Chroma
@@ -8,7 +8,6 @@ from langchain.llms import GPT4All, LlamaCpp, HuggingFacePipeline
 import os
 import argparse
 from wizardlm_langchain.model import load_quantized_model
-from langchain.memory import ConversationBufferMemory
 
 import accelerate
 from langchain import LLMChain, PromptTemplate
@@ -78,8 +77,6 @@ def main():
     embeddings = HuggingFaceEmbeddings(model_name=embeddings_model_name)
     db = Chroma(persist_directory=persist_directory, embedding_function=embeddings, client_settings=CHROMA_SETTINGS)
     retriever = db.as_retriever(search_kwargs={"k": target_source_chunks})
-    memory = ConversationBufferMemory(memory_key="chat_history", return_messages=True)
-
     # activate/deactivate the streaming StdOut callback for LLMs
     callbacks = [] if args.mute_stream else [StreamingStdOutCallbackHandler()]
     # Prepare the LLM
@@ -94,21 +91,26 @@ def main():
             print(f"Model {model_type} not supported!")
             exit;
     
-    prompt_template = """Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.
+    prompt_template = """### Human: Use the following pieces of context to answer the question at the end. If you don't know the answer, just say that you don't know, don't try to make up an answer.
 
     {context}
 
     Question: {question}
-    Answer in Italian:"""
+    ### Assistant:"""
     PROMPT = PromptTemplate(
         template=prompt_template, input_variables=["context", "question"]
     )
 
+    #chain_type_kwargs = {"prompt": PROMPT, "stop": ["###"]}
     chain_type_kwargs = {"prompt": PROMPT}
 
-    # qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever, chain_type_kwargs=chain_type_kwargs, return_source_documents= not args.hide_source)
-    qa = ConversationalRetrievalChain.from_llm(llm=llm, retriever=retriever, memory=memory, chain_type_kwargs=chain_type_kwargs, return_source_documents= not args.hide_source)
 
+    qa = RetrievalQA.from_chain_type(llm=llm, 
+                                     chain_type="stuff", 
+                                     retriever=retriever, 
+                                     chain_type_kwargs=chain_type_kwargs, 
+                                     return_source_documents= not args.hide_source)
+    
     # Interactive questions and answers
     while True:
         query = input("\nEnter a query: ")
@@ -116,8 +118,7 @@ def main():
             break
 
         # Get the answer from the chain
-        # res = qa(query)
-        res = qa({"question": query})
+        res = qa(query)
         answer, docs = res['result'], [] if args.hide_source else res['source_documents']
 
         # Print the result
